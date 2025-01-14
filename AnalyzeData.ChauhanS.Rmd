@@ -1,0 +1,131 @@
+---
+title: "Analytical Report"
+author: "Saloni Chandra Pal Singh Chauhan"
+date: "Spring 24"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r import_libraries,echo=FALSE,warning=FALSE,include=FALSE}
+#Importing necessary libraries
+library(DBI)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(scales)
+```
+
+```{r db_connection_setup,echo=FALSE,warning=FALSE}
+#Connecting to MySQL Database
+dbcon <- dbConnect(RMySQL::MySQL(), dbname = 'sql5687417', host = 'sql5.freemysqlhosting.net',
+                 username = 'sql5687417', password = 'j7GbnXm3gS')
+```
+
+### Analytical Query I: Top five sales reps with the most sales broken down by year.
+
+```{r top-five-reps,echo=FALSE,warning=FALSE}
+query1 <- "
+SELECT year AS Year, rep_name AS Rep_Name, SUM(total_sales_amount) AS Total_Sales
+FROM rep_facts JOIN time_dimension ON rep_facts.time_id = time_dimension.time_id
+GROUP BY year, rID
+ORDER BY year, total_sales DESC
+LIMIT 5"
+top_reps <- dbGetQuery(dbcon, query1)
+kable(top_reps, caption = "Top Five Sales Reps by Year")
+```
+
+### Analytical Query II: Total Sold per Product per Quarter
+
+```{r total-sales-product-quarter,echo=FALSE,warning=FALSE}
+query2 <- "
+SELECT
+pf.product_name AS Product_Name,
+td.year AS Year,
+CEIL(td.month / 3) AS Quarter,
+SUM(pf.total_sale_amount) AS Total_Sales
+FROM
+product_facts pf
+JOIN
+time_dimension td ON pf.time_id = td.time_id
+GROUP BY
+pf.product_name, td.year, Quarter
+ORDER BY
+td.year,pf.product_name,Quarter
+"
+sales_product_quarter <- dbGetQuery(dbcon, query2)
+kable(sales_product_quarter, caption = "Total Sales Per Product Per Quarter")
+```
+
+### Analytical Query III: Number of Units sold per Product per Region
+
+
+```{r units-sold-product-region,echo=FALSE,warning=FALSE}
+query3 <- "
+SELECT product_name, territory, SUM(total_sale_amount) AS total_sales, SUM(total_quantity) AS total_units_sold
+FROM product_facts
+GROUP BY product_name, territory
+ORDER BY product_name, territory
+"
+
+units_sold <- dbGetQuery(dbcon, query3)
+
+# Calculate the maximum value in the total_units_sold column
+max_units <- max(units_sold$total_units_sold, na.rm = TRUE)
+
+ggplot(units_sold, aes(x = territory, y = total_units_sold, fill = product_name)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Units Sold Per Product Per Region", x = "Territory", y = "Units Sold") +
+  scale_y_continuous(labels = label_comma(), 
+                     limits = c(0, max_units * 1.2)) +  
+  theme(axis.text.x = element_text(angle = 0, hjust = 1),  
+        plot.title = element_text(hjust = 0.5))
+
+```
+
+### Analytical Query IV: Average sales per Sales Rep over the years
+
+```{r average-sales-reps,echo=FALSE,warning=FALSE}
+query4 <- "
+SELECT 
+  rf.rep_name, 
+  td.year, 
+  ROUND(SUM(rf.total_sales_amount) / SUM(rf.number_of_sales), 0) AS average_sales
+FROM 
+  rep_facts rf
+JOIN 
+  time_dimension td ON rf.time_id = td.time_id
+GROUP BY 
+  rf.rID, td.year
+ORDER BY 
+  rf.rep_name, td.year"
+
+average_sales <- dbGetQuery(dbcon, query4)
+
+# Calculate max and min for setting reasonable limits
+max_value <- max(average_sales$average_sales, na.rm = TRUE)
+min_value <- min(average_sales$average_sales, na.rm = TRUE)
+
+
+padding <- 0.1 * (max_value - min_value)
+
+ggplot(average_sales, aes(x = as.integer(year), y = average_sales, group = rep_name, color = rep_name)) +
+  geom_line() +
+  labs(title = "Average Sales Per Sales Rep Over the Years",
+       x = "Year",
+       y = "Average Sales (In USD)",
+       color = "Sales Rep") +
+  scale_y_continuous(labels = label_comma(),
+                     limits = c(min_value - padding, max_value + padding)) +  
+  scale_x_continuous(breaks = seq(min(average_sales$year), max(average_sales$year), by = 1)) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1))
+
+
+
+```
+
+```{r echo=FALSE,warning=FALSE,include=FALSE}
+dbDisconnect(dbcon)
+```
+
